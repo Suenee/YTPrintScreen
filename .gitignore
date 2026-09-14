@@ -1,0 +1,16 @@
+# Local configuration and runtime state
+YTPrintScreen.ini
+YTPrintScreen.log
+YTPrintScreen_SmartTrim.ini
+YTPrintScreen.png
+YTPrintScreen.jpg
+YTPrintScreen.jpeg
+
+# Upgrade runtime data
+logs/
+backup/
+.upgrade.lock
+
+# Temporary files
+*.tmp
+*.bak
