@@ -3,7 +3,7 @@ setlocal EnableExtensions DisableDelayedExpansion
 chcp 65001 >nul 2>&1
 cls
 
-set "UPDATER_REVISION=1.00"
+set "UPDATER_REVISION=1.01"
 set "TARGET_BRANCH=devel"
 set "REPO_URL=https://github.com/Suenee/YTPrintScreen.git"
 
@@ -40,18 +40,29 @@ if not exist "%REPO_DIR%\." (
     exit /b 5
 )
 
-where git.exe >nul 2>&1
-if errorlevel 1 (
-    echo ERROR: Git není dostupný v PATH. Nainstalujte Git for Windows a spusťte upgrade.cmd znovu.
+set "POWERSHELL_EXE=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
+if not exist "%POWERSHELL_EXE%" (
+    echo ERROR: Windows PowerShell nebyl nalezen: %POWERSHELL_EXE%
     del /q "%~f0" >nul 2>&1
     exit /b 6
+)
+
+set "GIT_EXE="
+for /f "delims=" %%G in ('where git.exe 2^>nul') do if not defined GIT_EXE set "GIT_EXE=%%G"
+if not defined GIT_EXE if exist "%ProgramFiles%\Git\cmd\git.exe" set "GIT_EXE=%ProgramFiles%\Git\cmd\git.exe"
+if not defined GIT_EXE if exist "%ProgramFiles%\Git\bin\git.exe" set "GIT_EXE=%ProgramFiles%\Git\bin\git.exe"
+if not defined GIT_EXE if defined ProgramFiles(x86) if exist "%ProgramFiles(x86)%\Git\cmd\git.exe" set "GIT_EXE=%ProgramFiles(x86)%\Git\cmd\git.exe"
+if not defined GIT_EXE (
+    echo ERROR: Git for Windows nebyl nalezen. Nainstalujte Git a spusťte upgrade.cmd znovu.
+    del /q "%~f0" >nul 2>&1
+    exit /b 7
 )
 
 pushd "%REPO_DIR%" >nul 2>&1
 if errorlevel 1 (
     echo ERROR: Nelze vstoupit do repozitáře: %REPO_DIR%
     del /q "%~f0" >nul 2>&1
-    exit /b 7
+    exit /b 8
 )
 
 set "ACTIVE_REPO=%CD%"
@@ -64,7 +75,7 @@ set "TEMP_CLONE=%TEMP%\YTPrintScreen-upgrade-clone-%RANDOM%-%RANDOM%"
 if exist ".git\" goto :FETCH_RUNNER_EXISTING
 
 rem První zavedení do dosud negitového adresáře: runner se získá z čistého dočasného klonu.
-git.exe clone --quiet --depth 1 --branch "%TARGET_BRANCH%" "%REPO_URL%" "%TEMP_CLONE%"
+"%GIT_EXE%" clone --quiet --depth 1 --branch "%TARGET_BRANCH%" "%REPO_URL%" "%TEMP_CLONE%"
 if errorlevel 1 goto :FAIL_BOOTSTRAP_FETCH
 if not exist "%TEMP_CLONE%\upgrade.ps1" goto :FAIL_RUNNER_MISSING
 copy /y "%TEMP_CLONE%\upgrade.ps1" "%TEMP_RUNNER%" >nul 2>&1
@@ -74,14 +85,14 @@ goto :RUNNER
 
 :FETCH_RUNNER_EXISTING
 rem Pro self-update se runner bere přímo z autoritativní vzdálené větve, nikoli z pracovního stromu.
-git.exe -C "%ACTIVE_REPO%" fetch --quiet "%REPO_URL%" "%TARGET_BRANCH%"
+"%GIT_EXE%" -C "%ACTIVE_REPO%" fetch --quiet "%REPO_URL%" "%TARGET_BRANCH%"
 if errorlevel 1 goto :FAIL_FETCH
-git.exe -C "%ACTIVE_REPO%" show FETCH_HEAD:upgrade.ps1 > "%TEMP_RUNNER%"
+"%GIT_EXE%" -C "%ACTIVE_REPO%" show FETCH_HEAD:upgrade.ps1 > "%TEMP_RUNNER%"
 if errorlevel 1 goto :FAIL_RUNNER_COPY
 
 :RUNNER
 if not exist "%TEMP_RUNNER%" goto :FAIL_RUNNER_MISSING
-powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%TEMP_RUNNER%" -RepositoryPath "%ACTIVE_REPO%" -SourcePath "%REPO_DIR%" -TargetBranch "%TARGET_BRANCH%" -RepositoryUrl "%REPO_URL%" -UpdaterRevision "%UPDATER_REVISION%"
+"%POWERSHELL_EXE%" -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%TEMP_RUNNER%" -RepositoryPath "%ACTIVE_REPO%" -SourcePath "%REPO_DIR%" -TargetBranch "%TARGET_BRANCH%" -RepositoryUrl "%REPO_URL%" -UpdaterRevision "%UPDATER_REVISION%"
 set "RC=%ERRORLEVEL%"
 del /q "%TEMP_RUNNER%" >nul 2>&1
 if exist "%TEMP_CLONE%\" rmdir /s /q "%TEMP_CLONE%" >nul 2>&1
