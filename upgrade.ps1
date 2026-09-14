@@ -24,6 +24,8 @@ $script:LockPath = $null
 $script:LockOwned = $false
 $script:Warnings = New-Object System.Collections.Generic.List[string]
 $script:TemporaryBootstrapBackup = $null
+$script:BootstrapStarted = $false
+$script:BootstrapCompleted = $false
 $script:Utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 
 try {
@@ -55,7 +57,7 @@ function Set-UpgradePhase {
 
 function Add-UpgradeWarning {
     param([Parameter(Mandatory = $true)][string]$Message)
-    $script:Warnings.Add($Message)
+    [void]$script:Warnings.Add($Message)
     Write-UpgradeLine ("WARNING: {0}" -f $Message) ([ConsoleColor]::Yellow)
 }
 
@@ -152,8 +154,8 @@ function Acquire-UpgradeLock {
     }
 
     $payload = [pscustomobject]@{
-        pid       = $PID
-        startedAt = (Get-Date).ToString('o')
+        pid        = $PID
+        startedAt  = (Get-Date).ToString('o')
         repository = $RepositoryPath
     } | ConvertTo-Json -Compress
 
@@ -294,6 +296,44 @@ function Restore-LocalRuntimeFiles {
     }
 }
 
+function Restore-PreGitSnapshotOnFailure {
+    if (-not $script:BootstrapStarted -or $script:BootstrapCompleted) {
+        return
+    }
+    if (-not $script:TemporaryBootstrapBackup -or -not (Test-Path -LiteralPath $script:TemporaryBootstrapBackup)) {
+        return
+    }
+
+    Write-UpgradeLine "BOOTSTRAP rollback: obnovuji stav před převodem na Git repozitář." ([ConsoleColor]::Yellow)
+
+    $gitPath = Join-Path $RepositoryPath '.git'
+    if (Test-Path -LiteralPath $gitPath) {
+        Remove-Item -LiteralPath $gitPath -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
+    $generatedFiles = @(
+        'YTPrintScreen.ahk',
+        'YTPrintScreen_CHANGELOG.md',
+        'upgrade.cmd',
+        'upgrade.ps1',
+        '.gitattributes',
+        '.gitignore',
+        'YTPrintScreen.example.ini'
+    )
+    foreach ($name in $generatedFiles) {
+        $path = Join-Path $RepositoryPath $name
+        if (Test-Path -LiteralPath $path -PathType Leaf) {
+            Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    foreach ($entry in Get-ChildItem -LiteralPath $script:TemporaryBootstrapBackup -Force -File) {
+        Copy-Item -LiteralPath $entry.FullName -Destination (Join-Path $RepositoryPath $entry.Name) -Force
+    }
+
+    Write-UpgradeLine "BOOTSTRAP rollback dokončen; původní lokální soubory byly obnoveny." ([ConsoleColor]::Yellow)
+}
+
 function Get-TrackedLocalChanges {
     $changed = New-Object System.Collections.Generic.HashSet[string]([System.StringComparer]::OrdinalIgnoreCase)
 
@@ -340,6 +380,11 @@ function Synchronize-Repository {
     }
 
     Invoke-Native -FilePath $script:GitExe -ArgumentList @('-C', $RepositoryPath, 'fetch', '--prune', 'origin', $TargetBranch) | Out-Null
+
+    if ($changes.Count -gt 0) {
+        Invoke-Native -FilePath $script:GitExe -ArgumentList @('-C', $RepositoryPath, 'reset', '--hard', 'HEAD') | Out-Null
+    }
+
     Invoke-Native -FilePath $script:GitExe -ArgumentList @('-C', $RepositoryPath, 'checkout', '-B', $TargetBranch, ("origin/{0}" -f $TargetBranch)) | Out-Null
     Invoke-Native -FilePath $script:GitExe -ArgumentList @('-C', $RepositoryPath, 'reset', '--hard', ("origin/{0}" -f $TargetBranch)) | Out-Null
 
@@ -361,6 +406,7 @@ function Bootstrap-Repository {
     Set-UpgradePhase "BOOTSTRAP"
 
     Assert-SafeBootstrapDirectory
+    $script:BootstrapStarted = $true
     Backup-PreGitFiles
     Remove-AuthoritativeBootstrapFiles
 
@@ -380,6 +426,7 @@ function Bootstrap-Repository {
         throw "Bootstrap skončil na jiném commitu než origin cílové větve."
     }
 
+    $script:BootstrapCompleted = $true
     Write-UpgradeLine ("Bootstrap commit: {0}" -f $localHead.Output[0].Trim())
 }
 
@@ -415,18 +462,23 @@ function Verify-Dependencies {
         (Join-Path $env:ProgramFiles 'AutoHotkey\v2\AutoHotkey.exe')
     )
 
-    $ahk = Get-Command AutoHotkey.exe -ErrorAction SilentlyContinue
-    if (-not $ahk) {
+    $ahkPath = $null
+    $ahkCommand = Get-Command AutoHotkey.exe -ErrorAction SilentlyContinue
+    if ($ahkCommand) {
+        $ahkPath = $ahkCommand.Source
+    }
+
+    if (-not $ahkPath) {
         foreach ($candidate in $autoHotkeyCandidates) {
             if ($candidate -and (Test-Path -LiteralPath $candidate -PathType Leaf)) {
-                $ahk = Get-Item -LiteralPath $candidate
+                $ahkPath = $candidate
                 break
             }
         }
     }
 
-    if ($ahk) {
-        Write-UpgradeLine ("AutoHotkey v2 executable: {0}" -f $ahk.Source)
+    if ($ahkPath) {
+        Write-UpgradeLine ("AutoHotkey v2 executable: {0}" -f $ahkPath)
     } else {
         Add-UpgradeWarning "AutoHotkey v2 nebyl nalezen v PATH ani ve standardní instalační cestě. Soubory jsou aktualizované, ale spuštění skriptu může vyžadovat instalaci AutoHotkey v2."
     }
@@ -529,6 +581,20 @@ try {
     $exitCode = 0
 } catch {
     $message = $_.Exception.Message
+
+    if ($script:BootstrapStarted -and -not $script:BootstrapCompleted) {
+        try {
+            Restore-PreGitSnapshotOnFailure
+        } catch {
+            $rollbackError = $_.Exception.Message
+            if ($script:LogPath) {
+                Write-UpgradeLine ("WARNING: Bootstrap rollback nebyl úplný: {0}" -f $rollbackError) ([ConsoleColor]::Yellow)
+            } else {
+                Write-Host ("WARNING: Bootstrap rollback nebyl úplný: {0}" -f $rollbackError) -ForegroundColor Yellow
+            }
+        }
+    }
+
     if ($script:LogPath) {
         Write-UpgradeLine ("ERROR: {0}" -f $message) ([ConsoleColor]::Red)
         Write-UpgradeLine ("STATUS: FAILED - phase={0}" -f $script:CurrentPhase) ([ConsoleColor]::Red)
