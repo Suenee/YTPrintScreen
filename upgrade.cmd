@@ -3,7 +3,7 @@ setlocal EnableExtensions DisableDelayedExpansion
 chcp 65001 >nul 2>&1
 cls
 
-set "UPDATER_REVISION=1.02"
+set "UPDATER_REVISION=1.03"
 set "TARGET_BRANCH=devel"
 set "REPO_URL=https://github.com/Suenee/YTPrintScreen.git"
 
