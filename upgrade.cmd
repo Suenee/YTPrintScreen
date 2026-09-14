@@ -3,7 +3,7 @@ setlocal EnableExtensions DisableDelayedExpansion
 chcp 65001 >nul 2>&1
 cls
 
-set "UPDATER_REVISION=1.01"
+set "UPDATER_REVISION=1.02"
 set "TARGET_BRANCH=devel"
 set "REPO_URL=https://github.com/Suenee/YTPrintScreen.git"
 
@@ -29,21 +29,18 @@ cmd.exe /d /s /c ""%TEMP_LAUNCHER%" --temp-launcher "%REPO_DIR%"" & exit /b
 set "REPO_DIR=%~2"
 if not defined REPO_DIR (
     echo ERROR: Do dočasného launcheru nebyla předána cesta repozitáře.
-    del /q "%~f0" >nul 2>&1
     exit /b 4
 )
 
 for %%I in ("%REPO_DIR%") do set "REPO_DIR=%%~fI"
 if not exist "%REPO_DIR%\." (
     echo ERROR: Adresář repozitáře neexistuje: %REPO_DIR%
-    del /q "%~f0" >nul 2>&1
     exit /b 5
 )
 
 set "POWERSHELL_EXE=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
 if not exist "%POWERSHELL_EXE%" (
     echo ERROR: Windows PowerShell nebyl nalezen: %POWERSHELL_EXE%
-    del /q "%~f0" >nul 2>&1
     exit /b 6
 )
 
@@ -51,17 +48,14 @@ set "GIT_EXE="
 for /f "delims=" %%G in ('where git.exe 2^>nul') do if not defined GIT_EXE set "GIT_EXE=%%G"
 if not defined GIT_EXE if exist "%ProgramFiles%\Git\cmd\git.exe" set "GIT_EXE=%ProgramFiles%\Git\cmd\git.exe"
 if not defined GIT_EXE if exist "%ProgramFiles%\Git\bin\git.exe" set "GIT_EXE=%ProgramFiles%\Git\bin\git.exe"
-if not defined GIT_EXE if defined ProgramFiles(x86) if exist "%ProgramFiles(x86)%\Git\cmd\git.exe" set "GIT_EXE=%ProgramFiles(x86)%\Git\cmd\git.exe"
 if not defined GIT_EXE (
     echo ERROR: Git for Windows nebyl nalezen. Nainstalujte Git a spusťte upgrade.cmd znovu.
-    del /q "%~f0" >nul 2>&1
     exit /b 7
 )
 
 pushd "%REPO_DIR%" >nul 2>&1
 if errorlevel 1 (
     echo ERROR: Nelze vstoupit do repozitáře: %REPO_DIR%
-    del /q "%~f0" >nul 2>&1
     exit /b 8
 )
 
@@ -92,12 +86,16 @@ if errorlevel 1 goto :FAIL_RUNNER_COPY
 
 :RUNNER
 if not exist "%TEMP_RUNNER%" goto :FAIL_RUNNER_MISSING
+rem Windows PowerShell 5.1 interpretuje UTF-8 bez BOM jako ANSI; dočasný runner proto dostane BOM explicitně.
+"%POWERSHELL_EXE%" -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "$p=$env:TEMP_RUNNER; $t=[System.IO.File]::ReadAllText($p,[System.Text.Encoding]::UTF8); $e=New-Object System.Text.UTF8Encoding($true); [System.IO.File]::WriteAllText($p,$t,$e)"
+if errorlevel 1 goto :FAIL_RUNNER_ENCODING
+
 "%POWERSHELL_EXE%" -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%TEMP_RUNNER%" -RepositoryPath "%ACTIVE_REPO%" -SourcePath "%REPO_DIR%" -TargetBranch "%TARGET_BRANCH%" -RepositoryUrl "%REPO_URL%" -UpdaterRevision "%UPDATER_REVISION%"
 set "RC=%ERRORLEVEL%"
 del /q "%TEMP_RUNNER%" >nul 2>&1
 if exist "%TEMP_CLONE%\" rmdir /s /q "%TEMP_CLONE%" >nul 2>&1
 popd >nul 2>&1
-del /q "%~f0" >nul 2>&1 & exit /b %RC%
+exit /b %RC%
 
 :FAIL_BOOTSTRAP_FETCH
 echo ERROR: Nelze získat autoritativní updater z %REPO_URL% větve %TARGET_BRANCH%.
@@ -119,8 +117,13 @@ echo ERROR: Autoritativní upgrade.ps1 nebyl nalezen.
 set "RC=23"
 goto :FAIL_COMMON
 
+:FAIL_RUNNER_ENCODING
+echo ERROR: Nelze připravit UTF-8 dočasnou kopii upgrade.ps1.
+set "RC=24"
+goto :FAIL_COMMON
+
 :FAIL_COMMON
 if exist "%TEMP_RUNNER%" del /q "%TEMP_RUNNER%" >nul 2>&1
 if exist "%TEMP_CLONE%\" rmdir /s /q "%TEMP_CLONE%" >nul 2>&1
 popd >nul 2>&1
-del /q "%~f0" >nul 2>&1 & exit /b %RC%
+exit /b %RC%
