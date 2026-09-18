@@ -236,6 +236,7 @@ function Backup-PreGitFiles {
 function Remove-AuthoritativeBootstrapFiles {
     $authoritativeFiles = @(
         'YTPrintScreen.ahk',
+        'YTPrintScreen.ini',
         'YTPrintScreen_CHANGELOG.md',
         'upgrade.cmd',
         'upgrade.ps1',
@@ -278,7 +279,6 @@ function Restore-LocalRuntimeFiles {
     }
 
     $runtimeFiles = @(
-        'YTPrintScreen.ini',
         'YTPrintScreen.log',
         'YTPrintScreen_SmartTrim.ini',
         'YTPrintScreen.png',
@@ -313,6 +313,7 @@ function Restore-PreGitSnapshotOnFailure {
 
     $generatedFiles = @(
         'YTPrintScreen.ahk',
+        'YTPrintScreen.ini',
         'YTPrintScreen_CHANGELOG.md',
         'upgrade.cmd',
         'upgrade.ps1',
@@ -434,19 +435,11 @@ function Ensure-Configuration {
     Set-UpgradePhase "CONFIGURATION"
 
     $configPath = Join-Path $RepositoryPath "YTPrintScreen.ini"
-    $examplePath = Join-Path $RepositoryPath "YTPrintScreen.example.ini"
-
-    if (Test-Path -LiteralPath $configPath -PathType Leaf) {
-        Write-UpgradeLine "Existující YTPrintScreen.ini zůstává beze změny."
-        return
+    if (-not (Test-Path -LiteralPath $configPath -PathType Leaf)) {
+        throw "Chybí autoritativní sledovaný YTPrintScreen.ini."
     }
 
-    if (-not (Test-Path -LiteralPath $examplePath -PathType Leaf)) {
-        throw "Chybí YTPrintScreen.example.ini."
-    }
-
-    Copy-Item -LiteralPath $examplePath -Destination $configPath -Force
-    Write-UpgradeLine "Vytvořen nový YTPrintScreen.ini z výchozí šablony."
+    Write-UpgradeLine "YTPrintScreen.ini je spravován repozitářem a odpovídá cílové větvi."
 }
 
 function Verify-Dependencies {
@@ -489,6 +482,7 @@ function Verify-Installation {
 
     $requiredFiles = @(
         'YTPrintScreen.ahk',
+        'YTPrintScreen.ini',
         'YTPrintScreen.example.ini',
         'YTPrintScreen_CHANGELOG.md',
         'upgrade.cmd',
@@ -506,7 +500,7 @@ function Verify-Installation {
 
     $configPath = Join-Path $RepositoryPath 'YTPrintScreen.ini'
     if (-not (Test-Path -LiteralPath $configPath -PathType Leaf)) {
-        throw "Po upgradu chybí lokální YTPrintScreen.ini."
+        throw "Po upgradu chybí sledovaný YTPrintScreen.ini."
     }
 
     $status = Invoke-Native -FilePath $script:GitExe -ArgumentList @('-C', $RepositoryPath, 'status', '--porcelain', '--untracked-files=no') -QuietOutput
