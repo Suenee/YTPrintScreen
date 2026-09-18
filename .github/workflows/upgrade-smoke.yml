@@ -10,91 +10,90 @@ jobs:
   existing-checkout:
     runs-on: windows-latest
     steps:
-      - name: Checkout devel
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           ref: devel
           fetch-depth: 0
-
       - name: First upgrade
         shell: cmd
         run: upgrade.cmd
-
       - name: Immediate second upgrade
         shell: cmd
         run: upgrade.cmd
-
       - name: Verify clean tracked tree
         shell: pwsh
         run: |
           $dirty = @(git status --porcelain --untracked-files=no)
-          if ($dirty.Count -gt 0) {
-            throw "Tracked tree is dirty after repeated upgrade: $($dirty -join ' | ')"
-          }
-          if (-not (Test-Path .\YTPrintScreen.ini)) {
-            throw 'Local YTPrintScreen.ini was not created.'
-          }
+          if ($dirty.Count -gt 0) { throw "Tracked tree is dirty: $($dirty -join ' | ')" }
+          if (-not (Test-Path .\YTPrintScreen.ini)) { throw 'Tracked YTPrintScreen.ini is missing.' }
 
-  bootstrap-adoption:
+  raw-lf-fresh-bootstrap:
     runs-on: windows-latest
     steps:
-      - name: Checkout source used only to prepare legacy folder
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           ref: devel
           fetch-depth: 1
+      - name: Prepare empty target with raw LF-only launcher
+        shell: pwsh
+        run: |
+          $target = Join-Path $env:RUNNER_TEMP 'YTPrintScreen fresh install with spaces'
+          New-Item -ItemType Directory -Path $target -Force | Out-Null
+          $text = Get-Content .\upgrade.cmd -Raw
+          $text = $text -replace "`r`n", "`n"
+          [IO.File]::WriteAllText((Join-Path $target 'upgrade.cmd'), $text, (New-Object Text.UTF8Encoding($false)))
+          "TARGET=$target" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+      - name: Bootstrap from LF-only launcher
+        shell: cmd
+        run: call "%TARGET%\upgrade.cmd"
+      - name: Verify fresh bootstrap
+        shell: pwsh
+        run: |
+          if (-not (Test-Path (Join-Path $env:TARGET '.git'))) { throw 'Bootstrap did not create Git repository.' }
+          $branch = (git -C $env:TARGET rev-parse --abbrev-ref HEAD).Trim()
+          if ($branch -ne 'devel') { throw "Unexpected branch: $branch" }
+          $dirty = @(git -C $env:TARGET status --porcelain --untracked-files=no)
+          if ($dirty.Count -gt 0) { throw "Tracked tree is dirty after bootstrap: $($dirty -join ' | ')" }
+          $ini = Get-Content (Join-Path $env:TARGET 'YTPrintScreen.ini') -Raw
+          if ($ini -notmatch 'FSCUT_X=0') { throw 'Authoritative INI was not installed.' }
+      - name: Immediate second upgrade
+        shell: cmd
+        run: call "%TARGET%\upgrade.cmd"
+      - name: Verify second-run idempotence
+        shell: pwsh
+        run: |
+          $dirty = @(git -C $env:TARGET status --porcelain --untracked-files=no)
+          if ($dirty.Count -gt 0) { throw "Tracked tree is dirty after second run: $($dirty -join ' | ')" }
+          $log = Join-Path $env:TARGET 'logs\upgrade.log'
+          if (-not (Test-Path $log)) { throw 'upgrade.log is missing.' }
+          if ((Get-Content $log -Raw) -notmatch 'STATUS: (SUCCESS|WARNING) - phase=COMPLETE') { throw 'No successful final status.' }
 
-      - name: Prepare non-Git legacy folder with spaces
+  legacy-adoption:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: devel
+          fetch-depth: 1
+      - name: Prepare legacy folder
         shell: pwsh
         run: |
           $target = Join-Path $env:RUNNER_TEMP 'YTPrintScreen legacy adoption'
           New-Item -ItemType Directory -Path $target -Force | Out-Null
           Copy-Item .\YTPrintScreen.ahk (Join-Path $target 'YTPrintScreen.ahk')
-          Copy-Item .\YTPrintScreen_CHANGELOG.md (Join-Path $target 'YTPrintScreen_CHANGELOG.md')
           Copy-Item .\upgrade.cmd (Join-Path $target 'upgrade.cmd')
-          Copy-Item .\YTPrintScreen.example.ini (Join-Path $target 'YTPrintScreen.ini')
-          Add-Content -LiteralPath (Join-Path $target 'YTPrintScreen.ini') -Value '; PRESERVE-ME'
-          Set-Content -LiteralPath (Join-Path $target 'YTPrintScreen_SmartTrim.ini') -Value '[QuickN]'
+          Set-Content (Join-Path $target 'YTPrintScreen.ini') '; LEGACY-CONFIG'
+          Set-Content (Join-Path $target 'YTPrintScreen_SmartTrim.ini') '[QuickN]'
           "TARGET=$target" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-
-      - name: Bootstrap existing legacy installation
+      - name: Adopt legacy installation
         shell: cmd
         run: call "%TARGET%\upgrade.cmd"
-
-      - name: Verify bootstrap and preserved runtime data
+      - name: Verify authoritative config and backup
         shell: pwsh
         run: |
-          if (-not (Test-Path (Join-Path $env:TARGET '.git'))) {
-            throw 'Bootstrap did not create a Git repository.'
-          }
-          $branch = git -C $env:TARGET rev-parse --abbrev-ref HEAD
-          if ($branch.Trim() -ne 'devel') {
-            throw "Unexpected branch after bootstrap: $branch"
-          }
-          $config = Get-Content -LiteralPath (Join-Path $env:TARGET 'YTPrintScreen.ini') -Raw
-          if ($config -notmatch 'PRESERVE-ME') {
-            throw 'Existing local configuration was overwritten.'
-          }
-          if (-not (Test-Path (Join-Path $env:TARGET 'backup'))) {
-            throw 'Pre-Git backup directory was not created.'
-          }
-
-      - name: Immediate second upgrade after bootstrap
-        shell: cmd
-        run: call "%TARGET%\upgrade.cmd"
-
-      - name: Verify idempotence after bootstrap
-        shell: pwsh
-        run: |
+          $config = Get-Content (Join-Path $env:TARGET 'YTPrintScreen.ini') -Raw
+          if ($config -match 'LEGACY-CONFIG') { throw 'Legacy config incorrectly replaced tracked authoritative INI.' }
+          $backups = @(Get-ChildItem (Join-Path $env:TARGET 'backup') -Recurse -Filter YTPrintScreen.ini -ErrorAction SilentlyContinue)
+          if ($backups.Count -lt 1) { throw 'Legacy INI backup was not preserved.' }
           $dirty = @(git -C $env:TARGET status --porcelain --untracked-files=no)
-          if ($dirty.Count -gt 0) {
-            throw "Tracked tree is dirty after bootstrap second run: $($dirty -join ' | ')"
-          }
-          $log = Join-Path $env:TARGET 'logs\upgrade.log'
-          if (-not (Test-Path $log)) {
-            throw 'upgrade.log is missing.'
-          }
-          $text = Get-Content -LiteralPath $log -Raw
-          if ($text -notmatch 'STATUS: (SUCCESS|WARNING) - phase=COMPLETE') {
-            throw 'upgrade.log does not contain a successful final status.'
-          }
+          if ($dirty.Count -gt 0) { throw "Tracked tree is dirty after adoption: $($dirty -join ' | ')" }
