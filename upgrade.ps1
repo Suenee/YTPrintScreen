@@ -241,7 +241,7 @@ function Remove-AuthoritativeBootstrapFiles {
         'upgrade.cmd',
         'upgrade.ps1',
         '.gitattributes',
-        '.gitignore',
+        '.gitignore'
     )
 
     foreach ($name in $authoritativeFiles) {
@@ -317,7 +317,7 @@ function Restore-PreGitSnapshotOnFailure {
         'upgrade.cmd',
         'upgrade.ps1',
         '.gitattributes',
-        '.gitignore',
+        '.gitignore'
     )
     foreach ($name in $generatedFiles) {
         $path = Join-Path $RepositoryPath $name
