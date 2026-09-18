@@ -101,3 +101,5 @@ jobs:
           if ($backups.Count -lt 1) { throw 'Legacy INI backup was not preserved.' }
           $dirty = @(git -C $env:TARGET status --porcelain --untracked-files=no)
           if ($dirty.Count -gt 0) { throw "Tracked tree is dirty after adoption: $($dirty -join ' | ')" }
+
+# Validate upgrade 1.07
