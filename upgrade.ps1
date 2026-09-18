@@ -242,7 +242,6 @@ function Remove-AuthoritativeBootstrapFiles {
         'upgrade.ps1',
         '.gitattributes',
         '.gitignore',
-        'YTPrintScreen.example.ini'
     )
 
     foreach ($name in $authoritativeFiles) {
@@ -319,7 +318,6 @@ function Restore-PreGitSnapshotOnFailure {
         'upgrade.ps1',
         '.gitattributes',
         '.gitignore',
-        'YTPrintScreen.example.ini'
     )
     foreach ($name in $generatedFiles) {
         $path = Join-Path $RepositoryPath $name
@@ -483,7 +481,6 @@ function Verify-Installation {
     $requiredFiles = @(
         'YTPrintScreen.ahk',
         'YTPrintScreen.ini',
-        'YTPrintScreen.example.ini',
         'YTPrintScreen_CHANGELOG.md',
         'upgrade.cmd',
         'upgrade.ps1',
