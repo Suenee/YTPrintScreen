@@ -1,5 +1,10 @@
 ﻿# YTPrintScreen – CHANGELOG
 
+## 1.97
+- Opraveno vkládání screenshotu do PowerPointu, které mohlo selhat chybou `Shapes.PasteSpecial: The specified data type is unavailable`, přestože PowerPoint běžel a bitmapa byla správně ve schránce.
+- Primární metoda je nyní `Shapes.Paste()`, takže PowerPoint sám použije dostupný obrazový formát z clipboardu.
+- Původní `PasteSpecial(1)` zůstává pouze jako fallback pro případ selhání běžného vložení.
+- Log nově zapisuje použitou PowerPoint paste metodu, úspěch a případný přechod na fallback.
 ## 1.96
 - Profil ChatGPT používá pro `capture` / legacy `fscut` pipeline `FSCUT,SmartTrim`.
 - Nejprve se použije bezpečný pevný výřez podle geometrie `FSCUT_*`; SmartTrim následně dočistí okolí až k hranám skutečného obrázku a zachová jeho skutečný poměr stran.
@@ -25,6 +30,11 @@
 
 # YTPrintScreen – Changelog
 
+## 1.97
+- Opraveno vkládání screenshotu do PowerPointu, které mohlo selhat chybou `Shapes.PasteSpecial: The specified data type is unavailable`, přestože PowerPoint běžel a bitmapa byla správně ve schránce.
+- Primární metoda je nyní `Shapes.Paste()`, takže PowerPoint sám použije dostupný obrazový formát z clipboardu.
+- Původní `PasteSpecial(1)` zůstává pouze jako fallback pro případ selhání běžného vložení.
+- Log nově zapisuje použitou PowerPoint paste metodu, úspěch a případný přechod na fallback.
 ## 1.93
 - SmartTrim dostal závěrečnou bezpečnou očistu hran pro úzké černé UI / letterbox pásy, které mohou zůstat připojené k jinak správně nalezenému obrazu.
 - Očista umí odstranit i několik barevných řádků nebo sloupců na úplném okraji před černým pásem, typicky červenou progress linku videopřehrávače.

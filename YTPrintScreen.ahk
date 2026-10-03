@@ -3,7 +3,7 @@
 
 /*
 YTPrintScreen.ahk
-Aktuální verze: 1.95
+Aktuální verze: 1.97
 
 Skript pořídí screenshot z aktivního nebo automaticky vybraného cílového okna.
 Chování se řídí souborem YTPrintScreen.ini.
@@ -3080,8 +3080,21 @@ InsertClipboardImageToPowerPoint() {
         ppt.Activate()
         Sleep(POWERPOINT_WAIT)
 
-        shape_range := slide.Shapes.PasteSpecial(1)
-        shape := shape_range.Item(1)
+        ; Clipboard obsahuje nativní CF_BITMAP. Obyčejný Paste nechá PowerPoint
+        ; zvolit skutečně dostupný obrazový formát; PasteSpecial(1) může na
+        ; některých verzích Office odmítnout platnou bitmapu jako nedostupný typ.
+        Log("PowerPoint paste | Method=Paste | START")
+        try {
+            shape_range := slide.Shapes.Paste()
+            shape := shape_range.Item(1)
+            Log("PowerPoint paste | Method=Paste | SUCCESS")
+        } catch as paste_error {
+            Log("PowerPoint paste | Method=Paste | FAILED | Detail=" paste_error.Message)
+            Log("PowerPoint paste | Method=PasteSpecial(1) | FALLBACK START")
+            shape_range := slide.Shapes.PasteSpecial(1)
+            shape := shape_range.Item(1)
+            Log("PowerPoint paste | Method=PasteSpecial(1) | FALLBACK SUCCESS")
+        }
 
         ; Screenshot má být vždy nejvyšší vrstva.
         shape.ZOrder(0)
